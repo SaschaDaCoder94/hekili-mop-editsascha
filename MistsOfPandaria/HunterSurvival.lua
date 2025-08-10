@@ -1,5 +1,5 @@
     -- HunterSurvival.lua
-    -- july 2025 by smufrik
+    -- july 2025 by smufrik, WIP - SaschaDaSilva
 
 -- Early return if not a Hunter
 if select(2, UnitClass('player')) ~= 'HUNTER' then return end
@@ -19,20 +19,9 @@ local strformat = string.format
 
     local spec = Hekili:NewSpecialization( 255, true )
 
-    -- Lock and Load: implement an internal cooldown (ICD) using local state and expressions.
-    -- MoP behavior: LnL primarily procs from Black Arrow ticks and trap triggers; gate with ~10s ICD.
-    local lnl_icd_duration = 10
-    local lnl_last_proc = 0
-    local function lnl_icd_remains(now)
-        local t = now or GetTime()
-        local rem = (lnl_last_proc + lnl_icd_duration) - t
-        return rem > 0 and rem or 0
-    end
-    local function lnl_icd_ready(now)
-        return lnl_icd_remains(now) == 0
-    end
 
-
+    local lockICDExpires = 0
+    local lastLockProcTime = 0
 
     -- Use MoP power type numbers instead of Enum
     -- Focus = 2 in MoP Classic
@@ -112,11 +101,11 @@ local strformat = string.format
         -- Tier 4 (Level 60)
         fervor = { 4, 1, 82726 }, -- Instantly resets the cooldown on your Kill Command and causes you and your pet to generate 50 Focus over 3 sec.
         dire_beast = { 4, 2, 120679 }, -- Summons a powerful wild beast that attacks your target and roars, increasing your Focus regeneration by 50% for 8 sec.
-        thrill_of_the_hunt = { 4, 3, 34720 }, -- You have a 30% chance when you fire a ranged attack that costs Focus to reduce the Focus cost of your next 3 Arcane Shots or Multi-Shots by 20.
+        thrill_of_the_hunt = { 4, 3, 109306 }, -- You have a 30% chance when you fire a ranged attack that costs Focus to reduce the Focus cost of your next 3 Arcane Shots or Multi-Shots by 20.
 
         -- Tier 5 (Level 75)
         a_murder_of_crows = { 5, 1, 131894 }, -- Sends a murder of crows to attack the target, dealing 0 Physical damage over 15 sec. If the target dies while under attack, A Murder of Crows' cooldown is reset.
-        blink_strikes = { 5, 2, 109304 }, -- Your pet's Basic Attacks deal 50% additional damage, and your pet can now use Blink Strike, teleporting to the target and dealing 0 Physical damage.
+        blink_strikes = { 5, 2, 130392 }, -- Your pet's Basic Attacks deal 50% additional damage, and your pet can now use Blink Strike, teleporting to the target and dealing 0 Physical damage.
         lynx_rush = { 5, 3, 120697 }, -- Your pet charges your target, dealing 0 Physical damage and causing the target to bleed for 0 Physical damage over 8 sec.
 
         -- Tier 6 (Level 90)
@@ -217,18 +206,27 @@ spec:RegisterAuras( {
         max_stack = 1
     },
 
+    
+
         thrill_of_the_hunt = {
             id = 34720,
             duration = 8,
             max_stack = 1
         },
 
+
         hunters_mark = {
             id = 1130,
             duration = 300,
-        type = "Ranged",
-        max_stack = 1
-    },
+            type = "Ranged",
+            max_stack = 1
+        },
+
+        dire_beast = {
+            id = 120679,
+            duration = 15,
+            max_stack = 1
+        },
 
 
 
@@ -312,11 +310,47 @@ spec:RegisterAuras( {
             debuff = true
         },
 
-            lock_and_load = {
-        id = 56453,
-        duration = 8,
-        max_stack = 3,
-    },
+         lock_and_load = {
+            id = 56453,
+            duration = 8,
+            max_stack = 3,
+         },
+
+        Lock_ICD = {
+             duration = 10,
+             generate = function(t) -- 't' is the table for the Lock_ICD aura we are building
+             local lal_buff = state.buff.lock_and_load
+        
+        -- === PART A: Check for the Trigger ===
+        -- We only care about the moment a NEW proc happens.
+             if lal_buff.up and lal_buff.applied > lastLockProcTime then
+        
+            -- A new proc occurred! Start our 10-second ICD timer.
+            lockICDExpires = state.query_time + 10
+            
+            -- IMPORTANT: Update our memory with this proc's timestamp.
+            lastLockProcTime = lal_buff.applied
+        end
+        
+        -- === PART B: Set the Aura's State ===
+        -- This part is now completely independent of the lock_and_load buff.
+        -- It only checks our persistent timer.
+        if lockICDExpires > state.query_time then
+            -- Our ICD is currently active.
+            t.count = 1
+            t.expires = lockICDExpires
+            t.applied = lockICDExpires - 10 -- Calculate the start time for consistency
+            t.caster = "player"
+        else
+            -- Our ICD has naturally expired.
+            t.count = 0
+            t.expires = 0
+            t.applied = 0
+            t.caster = "nobody"
+        end
+    end,
+},
+
 
         piercing_shots = {
             id = 82924,
@@ -331,7 +365,7 @@ spec:RegisterAuras( {
         },
 
         blink_strikes = {
-            id = 109304,
+            id = 130392,
             duration = 0,
             max_stack = 1
         },
@@ -475,18 +509,14 @@ spec:RegisterAuras( {
             cooldown = 0,
             gcd = "spell",
             
-            spend = function () return buff.thrill_of_the_hunt.up and 0 or 30 end,
+            spend = function () return buff.thrill_of_the_hunt.up and 10 or 30 end,
             spendType = "focus",
             
             startsCombat = true,
             
             handler = function ()
                 if buff.thrill_of_the_hunt.up then
-                    removeBuff( "thrill_of_the_hunt" )
-                end
-                -- Thrill of the Hunt can proc from focus-costing shots (not Auto Shot)
-                if talent.thrill_of_the_hunt.enabled and math.random() <= 0.3 then
-                    applyBuff( "thrill_of_the_hunt", 20 )
+                    removeBuff( "thrill_of_the_hunt", 1 )
                 end
             end,
         },
@@ -524,13 +554,13 @@ spec:RegisterAuras( {
             cooldown = 0,
             gcd = "spell",
             school = "nature",
-            spend = function () return buff.thrill_of_the_hunt.up and 0 or -14 end,
+            spend = function () return buff.thrill_of_the_hunt.up and -14 or -14 end,
             spendType = "focus",
             startsCombat = true,
             
             handler = function ()
                 if buff.thrill_of_the_hunt.up then
-                    removeBuff( "thrill_of_the_hunt" )
+                    removeBuff( "thrill_of_the_hunt", 1 )
                 end
                 
                 -- Cobra Shot maintains Serpent Sting in MoP (key Survival mechanic)
@@ -541,10 +571,6 @@ spec:RegisterAuras( {
                     end
                 end
                 
-                -- Thrill of the Hunt proc chance (30% on focus-costing shots)
-                if talent.thrill_of_the_hunt.enabled and math.random() <= 0.3 then
-                    applyBuff( "thrill_of_the_hunt", 20 )
-                end
             end,
         },
 
@@ -630,22 +656,12 @@ spec:RegisterAuras( {
             gcd = "spell",
             school = "physical",
 
-            spend = function () return buff.thrill_of_the_hunt.up and 0 or -14 end,
+            spend = function () return buff.thrill_of_the_hunt.up and -14 or -14 end,
             spendType = "focus",
 
             startsCombat = true,
             texture = 132213,
 
-            handler = function ()
-                if buff.thrill_of_the_hunt.up then
-                    removeBuff( "thrill_of_the_hunt" )
-                end
-                
-                -- Thrill of the Hunt proc chance (30% on focus-costing shots)
-                if talent.thrill_of_the_hunt.enabled and math.random() <= 0.3 then
-                    applyBuff( "thrill_of_the_hunt", 20 )
-                end
-            end,
         },
 
         serpent_sting = {
@@ -1215,7 +1231,7 @@ spec:RegisterAuras( {
 
         -- Pet abilities that can be talented
         blink_strikes = {
-            id = 109304,
+            id = 130392,
             cast = 0,
             cooldown = 0,
             gcd = "off",
@@ -1328,7 +1344,35 @@ spec:RegisterAuras( {
             end,
         },
 
-    -- Duplicate ability definitions removed: exhilaration, tranquilizing_shot
+
+
+        exhilaration = {
+            id = 109304,
+            cast = 0,
+            cooldown = 120,
+            gcd = "off",
+            
+            startsCombat = false,
+            toggle = "defensive",
+            
+            handler = function ()
+                -- Instantly heals you for 30% of your total health
+                applyBuff( "exhilaration" )
+            end,
+        },
+
+        tranquilizing_shot = {
+            id = 19801,
+            cast = 0,
+            cooldown = 8,
+            gcd = "spell",
+            
+            startsCombat = true,
+            
+            handler = function ()
+                -- Dispel magic effect
+            end,
+        },
     } )
 
     -- Pet Registration
@@ -1345,19 +1389,21 @@ spec:RegisterAuras( {
 spec:RegisterCombatLogEvent( function( _, subtype, _, sourceGUID, sourceName, sourceFlags, _, destGUID, destName, destFlags, _, spellID, spellName )
     if sourceGUID ~= state.GUID then return end
     
-    -- Lock and Load from Black Arrow periodic ticks (ICD-gated, 20% chance per tick in MoP-like behavior)
-    if subtype == "SPELL_PERIODIC_DAMAGE" and spellID == 3674 and state.talent.lock_and_load.enabled then -- Black Arrow
-        if lnl_icd_ready() and math.random() <= 0.20 then
-            state.applyBuff( "lock_and_load", 8 )
-            lnl_last_proc = GetTime()
+    -- Lock and Load procs from Auto Shot crits and other ranged abilities
+    if subtype == "SPELL_DAMAGE" and ( spellID == 75 or spellID == 2643 or spellID == 3044 ) then -- Auto Shot, Multi-Shot, Arcane Shot
+        if state.talent.lock_and_load.enabled then
+            local crit_chance = math.random()
+                            -- 15% chance for Lock and Load to proc on ranged crits in MoP
+                if crit_chance <= 0.15 then
+                    state.applyBuff( "lock_and_load", 8 )
+                end
         end
     end
     
     -- Lock and Load procs from trap activation (important Survival mechanic)
     if subtype == "SPELL_CAST_SUCCESS" and ( spellID == 1499 or spellID == 13813 or spellID == 13809 ) then -- Freezing, Explosive, Ice Trap
-        if state.talent.lock_and_load.enabled and lnl_icd_ready() and math.random() <= 0.25 then -- 25% chance from traps
+        if state.talent.lock_and_load.enabled and math.random() <= 0.25 then -- 25% chance from traps
             state.applyBuff( "lock_and_load", 8 )
-            lnl_last_proc = GetTime()
         end
     end
 end )
@@ -1365,8 +1411,6 @@ end )
     -- State Expressions
     spec:RegisterStateExpr( "focus_time_to_max", function()
         local regen_rate = 6 * haste
-        if buff.aspect_of_the_iron_hawk.up then regen_rate = regen_rate * 1.3 end
-        if buff.rapid_fire.up then regen_rate = regen_rate * 1.5 end
         
         return math.max( 0, ( (state.focus.max or 100) - (state.focus.current or 0) ) / regen_rate )
     end )
@@ -1390,15 +1434,12 @@ end )
         return buff.bloodlust
     end )
 
-    -- Publish Lock and Load ICD helpers for APL/visibility
-    spec:RegisterStateExpr( "lock_and_load_icd_remains", function()
-        return lnl_icd_remains( state.query_time )
+    -- Threat situation for misdirection logic
+    spec:RegisterStateExpr( "threat", function()
+        return {
+            situation = 0 -- Default to no threat situation
+        }
     end )
-    spec:RegisterStateExpr( "lock_and_load_icd_up", function()
-        return lnl_icd_remains( state.query_time ) > 0
-    end )
-
-    -- Threat is managed by the engine; no spec-level override
 
     -- === SHOT ROTATION STATE EXPRESSIONS ===
     
