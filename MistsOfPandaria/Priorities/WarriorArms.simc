@@ -1,4 +1,3 @@
-
 ### Pre-Pull ###
 actions.precombat+=/battle_shout,if=!buff.battle_shout.up&!buff.commanding_shout.up
 actions.precombat+=/commanding_shout,if=!buff.commanding_shout.up&!buff.battle_shout.up
@@ -71,7 +70,7 @@ actions.aoe+=/mortal_strike,if=buff.sweeping_strikes.up&active_enemies<=4
 actions.aoe+=/bladestorm,if=talent.bladestorm.enabled&active_enemies>=4
 actions.aoe+=/dragon_roar,if=talent.dragon_roar.enabled&active_enemies>=3
 actions.aoe+=/thunder_clap,if=active_enemies>=4&dot.deep_wounds.remains<4
-actions.aoe+=/cleave,if=active_enemies<=4&buff.sweeping_strikes.up
+actions.aoe+=/cleave,if=active_enemies<=4&rage>=90&!buff.sweeping_strikes.up
 actions.aoe+=/slam,if=buff.sweeping_strikes.up&rage>=25
 actions.aoe+=/slam,if=debuff.colossus_smash.up&rage>=25&active_enemies>=3
 actions.aoe+=/execute,if=buff.sudden_death.up&active_enemies<=3
