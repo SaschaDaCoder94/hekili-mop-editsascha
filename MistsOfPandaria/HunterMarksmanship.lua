@@ -28,70 +28,26 @@ local strformat = string.format
     -- Use MoP power type numbers instead of Enum
     -- Focus = 2 in MoP Classic
     spec:RegisterResource( 2, {
-        steady_shot = {
-            resource = "focus",
-            cast = function(x) return x > 0 and x or nil end,
-            aura = function(x)
-                -- Only predict focus if casting Steady Shot
-                if state.buff.casting.up and state.casting and state.casting.name == "Steady Shot" then
-                    return "casting"
-                end
-                return nil
-            end,
-            last = function()
-                return state.buff.casting.applied
-            end,
-            interval = function() return state.buff.casting.duration end,
-            value = function()
-                -- Predict 17 focus if Steady Focus buff is up, otherwise 14
-                if state.buff.steady_focus and state.buff.steady_focus.up then
-                    return 17
-                end
-                return 14
-            end,
-        },
-
-        cobra_shot = {
-            resource = "focus",
-            cast = function(x) return x > 0 and x or nil end,
-            aura = function(x) return x > 0 and "casting" or nil end,
-
-            last = function()
-                return state.buff.casting.applied
-            end,
-
-            interval = function() return state.buff.casting.duration end,
-            value = 14,
-        },
-
-        dire_beast = {
-            resource = "focus",
-            aura = "dire_beast",
-
-            last = function()
-                local app = state.buff.dire_beast.applied
-                local t = state.query_time
-
-                return app + floor( ( t - app ) / 2 ) * 2
-            end,
-
-            interval = 2,
-            value = 5,
-        },
-
-        fervor = {
-            resource = "focus",
-            aura = "fervor",
-
-            last = function()
-                return state.buff.fervor.applied
-            end,
-
-            interval = 1,
-            value = 5,
-            duration = 10,
-        },
-    } )
+    dire_beast = {
+        resource = "focus",
+        aura = "dire_beast",
+        last = function()
+            local app = state.buff.dire_beast.applied
+            local t = state.query_time
+            return app + floor((t - app) / 2) * 2
+        end,
+        interval = 2,
+        value = 5,
+    },
+    fervor = {
+        resource = "focus",
+        aura = "fervor",
+        last = function() return state.buff.fervor.applied end,
+        interval = 1,
+        value = 5,
+        duration = 10,
+    },
+})
 
     -- Talents
     spec:RegisterTalents( {
@@ -200,7 +156,6 @@ spec:RegisterAuras( {
     },
         multi_shot = {
             id = 2643,
-            duration = 4,
         max_stack = 1
     },
         rapid_fire = {
@@ -1374,30 +1329,6 @@ spec:RegisterAuras( {
     spec:RegisterGear( "tier14", 84242, 84243, 84244, 84245, 84246 )
 
 -- Combat log event handlers for Survival mechanics
-spec:RegisterCombatLogEvent( function( _, subtype, _, sourceGUID, sourceName, sourceFlags, _, destGUID, destName, destFlags, _, spellID, spellName )
-    if sourceGUID ~= state.GUID then return end
-    
-    -- Do NOT allow Auto Shot to proc Thrill of the Hunt (MoP requirement)
-    
-    -- Lock and Load procs from Auto Shot crits and other ranged abilities
-    if subtype == "SPELL_DAMAGE" and ( spellID == 2643 or spellID == 3044 ) then -- Multi-Shot, Arcane Shot (exclude Auto Shot)
-        if state.talent.lock_and_load.enabled then
-            local crit_chance = math.random()
-                            -- 15% chance for Lock and Load to proc on ranged crits in MoP
-                if crit_chance <= 0.15 then
-                    state.applyBuff( "lock_and_load", 8 )
-                end
-        end
-    end
-    
-    -- Lock and Load procs from trap activation (important Survival mechanic)
-    if subtype == "SPELL_CAST_SUCCESS" and ( spellID == 1499 or spellID == 13813 or spellID == 13809 ) then -- Freezing, Explosive, Ice Trap
-        if state.talent.lock_and_load.enabled and math.random() <= 0.25 then -- 25% chance from traps
-            state.applyBuff( "lock_and_load", 8 )
-        end
-    end
-end )
-
     -- State Expressions
     spec:RegisterStateExpr( "focus_time_to_max", function()
         local regen_rate = 6 * haste
